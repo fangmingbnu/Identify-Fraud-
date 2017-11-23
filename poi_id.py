@@ -3,6 +3,8 @@ import sys
 sys.path.append("../tools/")
 import pickle
 import matplotlib.pyplot as plt
+import pandas
+import numpy as np
 from feature_format import featureFormat, targetFeatureSplit
 from tester import dump_classifier_and_data
 from sklearn.metrics import accuracy_score
@@ -17,6 +19,9 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import StratifiedKFold
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import f_classif
+import matplotlib.pyplot as plt
+from sklearn.pipeline import Pipeline
+
 
 ### Task 1: Select what features you'll use.
 ### features_list is a list of strings, each of which is a feature name.
@@ -36,6 +41,9 @@ print data_dict
 print 'number of datapoint = ', len(data_dict)
 print data_dict['METTS MARK'].keys()
 print 'number of features = ', len(data_dict['METTS MARK'].keys())
+
+df = pandas.DataFrame.from_dict(data_dict, orient='index', dtype=np.float)
+print df.describe()
 
 poi = 0
 for i in data_dict:
@@ -77,30 +85,56 @@ my_dataset = data_dict
 
 ### Task 3: Feature selection
 ### Store to my_dataset for easy export below.
-
-### Select the three best features by Kbest method
 all_features_list = initial_features_list
 all_features_list.remove("email_address")
 data = featureFormat(my_dataset, all_features_list, sort_keys = True)
 labels, features = targetFeatureSplit(data)
-test = SelectKBest(f_classif, 4)
+
+### Combine pipeline , Kbest, and gridsearchCV method to decide how many features should be selected for this model
+
+pipe = Pipeline([('select_k_best', SelectKBest()), ('classify', tree.DecisionTreeClassifier())])
+N_FEATURES_OPTIONS = [i for i in range(1, 22)]
+param_grid = [{'select_k_best': [SelectKBest(f_classif)], 'select_k_best__k': N_FEATURES_OPTIONS}]
+
+## check the precision score
+grid = GridSearchCV(pipe, cv=3, n_jobs=1, param_grid=param_grid, scoring='%s_macro' % 'precision')
+grid.fit(features,  labels)
+mean_precision_scores = np.array(grid.cv_results_['mean_test_score'])
+## check the recall score
+grid = GridSearchCV(pipe, cv=3, n_jobs=1, param_grid=param_grid, scoring='%s_macro' % 'precision')
+grid.fit(features,  labels)
+mean_recall_scores = np.array(grid.cv_results_['mean_test_score'])
+## make a plot to show the relationship between performance vs features numbers
+
+plt.figure(1)
+plt.plot(N_FEATURES_OPTIONS, mean_precision_scores)
+plt.plot(N_FEATURES_OPTIONS, mean_recall_scores)
+plt.xlabel('feature number', fontsize=14)
+plt.ylabel('evaluation', fontsize=14)
+plt.legend(('precision', 'recall'), fontsize=14)
+plt.show()
+
+### From the plot, we need to choose the 7 features.
+### Using Kbest method to choose the K best features.
+test = SelectKBest(f_classif, 7)
 test.fit_transform(features, labels)
 indices = test.get_support(True)
+features_list = []
 print test.scores_
 for i in indices:
     print all_features_list[i+1]
+    features_list.append(all_features_list[i+1])
+print features_list
 
-### so I choose features 'salary', 'exercised_stock_options', 'bonus','total_stock_value'.
+### so I choose features 'salary', 'exercised_stock_options', 'bonus', 'total_stock_value', 'deferred_income', 'fraction_to_poi_email'.
+
 ### So the final features list is listed below:
 
-features_list = ['poi', 'salary', 'exercised_stock_options', 'bonus', 'total_stock_value']
-
+features_list = ['poi', 'salary', 'exercised_stock_options', 'bonus', 'total_stock_value', 'deferred_income', 'long_term_incentive', 'fraction_to_poi_email']
 
 ### Extract features and labels from dataset for local testing
-
 data = featureFormat(my_dataset, features_list, sort_keys = True)
 labels, features = targetFeatureSplit(data)
-
 
 ### Task 4: Try a varity of classifiers
 ### Please name your classifier clf for easy export below.
@@ -121,6 +155,9 @@ features_train, features_test, labels_train, labels_test = cross_validation.trai
 clf = GaussianNB()
 clf.fit(features_train, labels_train)
 pred = clf.predict(features_test)
+
+my_dataset = data_dict
+print my_dataset
 print 'naive bayes acc = ' , accuracy_score(pred, labels_test)
 print 'naive bayes recall = ', recall_score(labels_test, pred)
 print 'naive bayes precision = ', precision_score(labels_test, pred)
@@ -221,7 +258,7 @@ for train_indices, test_indices in skf.split(features, labels):
     labels_train = [labels[ii] for ii in train_indices]
     labels_test = [labels[ii] for ii in test_indices]
     # make train and test data
-    parameters = {'min_samples_split': [2, 10]}
+    parameters = {'min_samples_split': [2, 12]}
     tre = tree.DecisionTreeClassifier()
     clf = GridSearchCV(tre, parameters)
     clf = clf.fit(features_train, labels_train)
